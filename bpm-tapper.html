@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BPM</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Georgia, serif;
+    background: #fff;
+    color: #000;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  /* ── shared ── */
+  .screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    transition: opacity 0.35s, transform 0.35s;
+  }
+
+  .screen.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  #tap-screen.hidden  { transform: translateY(-18px); }
+  #metro-screen.hidden { transform: translateY(18px); }
+
+  .bpm-number {
+    font-size: clamp(96px, 20vw, 180px);
+    font-weight: normal;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    transform-origin: center center;
+    will-change: transform;
+  }
+
+  .bpm-unit {
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    color: #999;
+    text-transform: uppercase;
+    margin-top: 8px;
+    font-family: Arial, sans-serif;
+  }
+
+  /* ── tap screen ── */
+  #tap-count {
+    font-size: 14px;
+    color: #ccc;
+    margin-top: 24px;
+    font-family: Arial, sans-serif;
+    min-height: 16px;
+    transition: color 0.3s;
+  }
+  #tap-count.active { color: #aaa; }
+
+  #status {
+    font-size: 14px;
+    color: #ccc;
+    margin-top: 8px;
+    font-family: Arial, sans-serif;
+    min-height: 16px;
+    letter-spacing: 0.03em;
+    transition: color 0.4s;
+  }
+  #status.listening { color: #aaa; }
+
+  #mic-btn {
+    margin-top: 48px;
+    background: none;
+    border: 1px solid #000;
+    padding: 10px 28px;
+    font-size: 13px;
+    font-family: Arial, sans-serif;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: background 0.1s, color 0.1s;
+  }
+  #mic-btn:hover { background: #000; color: #fff; }
+  #mic-btn:active { opacity: 0.6; }
+
+  #metro-link {
+    margin-top: 20px;
+    font-size: 14px;
+    font-family: Arial, sans-serif;
+    color: #bbb;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: #ddd;
+    transition: color 0.2s;
+  }
+  #metro-link:hover { color: #000; text-decoration-color: #000; }
+
+  #threshold-wrap {
+    margin-top: 32px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  #threshold-wrap.visible { opacity: 1; }
+  #threshold-wrap label {
+    font-size: 13px;
+    color: #aaa;
+    font-family: Arial, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  input[type=range] { width: 120px; accent-color: #000; }
+  #threshold-val {
+    font-size: 13px;
+    color: #aaa;
+    font-family: Arial, sans-serif;
+    min-width: 28px;
+  }
+
+  #level-bar-wrap {
+    margin-top: 24px;
+    width: 200px;
+    height: 2px;
+    background: #eee;
+    opacity: 0;
+    transition: opacity 0.4s;
+    position: relative;
+  }
+  #level-bar-wrap.visible { opacity: 1; }
+  #level-bar { height: 100%; background: #000; width: 0%; transition: width 0.05s; }
+  #threshold-line {
+    position: absolute;
+    top: -3px; height: 8px; width: 1px;
+    background: #ccc;
+  }
+
+  /* ── metro screen ── */
+  #metro-bpm {
+    cursor: ns-resize;
+    touch-action: none;
+  }
+  #metro-bpm:active { opacity: 0.85; }
+
+  #drag-hint {
+    font-size: 13px;
+    color: #ccc;
+    margin-top: 10px;
+    font-family: Arial, sans-serif;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    transition: opacity 0.4s;
+  }
+
+
+  #back-link {
+    margin-top: 6px;
+    font-size: 14px;
+    font-family: Arial, sans-serif;
+    color: #ccc;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: #e8e8e8;
+    letter-spacing: 0.04em;
+    transition: color 0.2s;
+  }
+  #back-link:hover { color: #000; text-decoration-color: #000; }
+</style>
+</head>
+<body>
+
+<!-- TAP SCREEN -->
+<div class="screen" id="tap-screen">
+  <div class="bpm-number" id="tap-bpm">—</div>
+  <div class="bpm-unit">bpm</div>
+  <div id="tap-count"></div>
+  <div id="status">Snap your fingers to find your tempo.</div>
+  <button id="mic-btn">enable mic</button>
+  <div id="metro-link">metronome →</div>
+  <div id="level-bar-wrap"><div id="level-bar"></div><div id="threshold-line"></div></div>
+  <div id="threshold-wrap">
+    <label>sensitivity</label>
+    <input type="range" id="threshold-slider" min="1" max="30" value="1" step="1">
+    <span id="threshold-val">1</span>
+  </div>
+</div>
+
+<!-- METRO SCREEN -->
+<div class="screen hidden" id="metro-screen">
+  <div class="bpm-number" id="metro-bpm">120</div>
+  <div class="bpm-unit">bpm</div>
+  <div id="drag-hint">drag up / down to adjust</div>
+  <div id="back-link">← back to tap</div>
+</div>
+
+<script>
+  // ── elements ──
+  const tapScreen      = document.getElementById('tap-screen');
+  const metroScreen    = document.getElementById('metro-screen');
+  const tapBpm         = document.getElementById('tap-bpm');
+  const metroBpm       = document.getElementById('metro-bpm');
+  const tapCountEl     = document.getElementById('tap-count');
+  const statusEl       = document.getElementById('status');
+  const micBtn         = document.getElementById('mic-btn');
+  const metroLink      = document.getElementById('metro-link');
+  const thresholdWrap  = document.getElementById('threshold-wrap');
+  const levelBarWrap   = document.getElementById('level-bar-wrap');
+  const levelBar       = document.getElementById('level-bar');
+  const thresholdLine  = document.getElementById('threshold-line');
+  const thresholdSlider = document.getElementById('threshold-slider');
+  const thresholdVal   = document.getElementById('threshold-val');
+  const backLink       = document.getElementById('back-link');
+  const dragHint       = document.getElementById('drag-hint');
+
+  // ── state ──
+  const WINDOW_SIZE = 8, RESET_MS = 2000, COOLDOWN_MS = 200;
+  let timestamps = [], lastTap = 0, resetTimer = null;
+  let running = false, threshold = 1;
+  let currentBpm = null, lastTappedBpm = null;
+
+  let metroOn = false, metroTimeout = null, metroAnimReq = null;
+  let metroBpmVal = 120;
+  let audioCtx = null;
+  let snapPulseReq = null;
+
+  // ── threshold slider ──
+  thresholdSlider.addEventListener('input', () => {
+    threshold = parseInt(thresholdSlider.value);
+    thresholdVal.textContent = threshold;
+    thresholdLine.style.left = (threshold / 100 * 100) + '%';
+  });
+  thresholdLine.style.left = (threshold / 100 * 100) + '%';
+
+  // ── snap logic ──
+  function onSnap() {
+    const now = performance.now();
+    if (now - lastTap < COOLDOWN_MS) return;
+    lastTap = now;
+    if (resetTimer) clearTimeout(resetTimer);
+    resetTimer = setTimeout(reset, RESET_MS);
+    timestamps.push(now);
+    if (timestamps.length > WINDOW_SIZE + 1) timestamps.shift();
+    if (timestamps.length >= 2) {
+      const intervals = [];
+      for (let i = 1; i < timestamps.length; i++) intervals.push(timestamps[i] - timestamps[i-1]);
+      const avg = intervals.reduce((a,b) => a+b, 0) / intervals.length;
+      currentBpm = 60000 / avg;
+      lastTappedBpm = currentBpm;
+      tapBpm.textContent = currentBpm.toFixed(1);
+      tapCountEl.textContent = `avg of ${intervals.length} interval${intervals.length !== 1 ? 's' : ''}`;
+      tapCountEl.classList.add('active');
+      
+    } else {
+      tapBpm.textContent = '—';
+      tapCountEl.textContent = 'waiting for second snap...';
+      tapCountEl.classList.add('active');
+    }
+    snapFlash(tapBpm);
+  }
+
+  function snapFlash(el) {
+    if (snapPulseReq) cancelAnimationFrame(snapPulseReq);
+    el.style.transition = 'none';
+    el.style.opacity = '0.15';
+    snapPulseReq = requestAnimationFrame(() => {
+      el.style.transition = 'opacity 0.18s ease-out';
+      el.style.opacity = '1';
+    });
+  }
+
+  function reset() {
+    timestamps = [];
+    tapBpm.textContent = '—';
+    tapBpm.style.transition = 'none';
+    tapBpm.style.opacity = '1';
+    tapCountEl.textContent = '';
+    tapCountEl.classList.remove('active');
+    statusEl.textContent = running ? 'listening' : 'Snap your fingers to find your tempo.';
+  }
+
+  // ── mic ──
+  async function startMic() {
+    try {
+      const stream   = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioCtx       = new (window.AudioContext || window.webkitAudioContext)();
+      const source   = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      const buf = new Float32Array(analyser.fftSize);
+      let wasAbove = false;
+      running = true;
+      micBtn.style.display = 'none';
+      thresholdWrap.classList.add('visible');
+      levelBarWrap.classList.add('visible');
+      statusEl.textContent = 'listening';
+      statusEl.classList.add('listening');
+      (function tick() {
+        analyser.getFloatTimeDomainData(buf);
+        let rms = 0;
+        for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
+        rms = Math.sqrt(rms / buf.length) * 100;
+        levelBar.style.width = Math.min(rms * 3, 100) + '%';
+        if (rms > threshold && !wasAbove) { wasAbove = true; onSnap(); }
+        else if (rms <= threshold * 0.7) wasAbove = false;
+        requestAnimationFrame(tick);
+      })();
+    } catch(e) { statusEl.textContent = 'mic access denied'; }
+  }
+
+  micBtn.addEventListener('click', startMic);
+
+  // ── screen switching ──
+  metroLink.addEventListener('click', enterMetro);
+  backLink.addEventListener('click', exitMetro);
+
+  function enterMetro() {
+    // carry over last tapped BPM if available
+    if (lastTappedBpm) {
+      metroBpmVal = Math.round(lastTappedBpm);
+      metroBpm.textContent = metroBpmVal;
+    }
+    tapScreen.classList.add('hidden');
+    metroScreen.classList.remove('hidden');
+    metroOn = true;
+    ensureAudioCtx();
+    scheduleClick(0);
+  }
+
+  function exitMetro() {
+    metroOn = false;
+    if (metroTimeout) { clearTimeout(metroTimeout); metroTimeout = null; }
+    if (metroAnimReq) { cancelAnimationFrame(metroAnimReq); metroAnimReq = null; }
+    metroBpm.style.transform = 'scale(1)';
+    metroScreen.classList.add('hidden');
+    tapScreen.classList.remove('hidden');
+    if (running) statusEl.textContent = 'listening';
+  }
+
+
+  // ── drag to adjust BPM ──
+  let dragStartY = null, dragStartBpm = null;
+  const PX_PER_BPM = 3; // pixels of drag per 1 BPM
+
+  function onDragStart(y) {
+    dragStartY   = y;
+    dragStartBpm = metroBpmVal;
+    dragHint.style.opacity = '0';
+  }
+
+  function onDragMove(y) {
+    if (dragStartY === null) return;
+    const delta = Math.round((dragStartY - y) / PX_PER_BPM);
+    metroBpmVal = Math.min(300, Math.max(20, dragStartBpm + delta));
+    metroBpm.textContent = metroBpmVal;
+    restartMetro();
+  }
+
+  function onDragEnd() {
+    dragStartY = null;
+    dragStartBpm = null;
+  }
+
+  // mouse
+  metroBpm.addEventListener('mousedown', e => { onDragStart(e.clientY); e.preventDefault(); });
+  window.addEventListener('mousemove',   e => { if (dragStartY !== null) onDragMove(e.clientY); });
+  window.addEventListener('mouseup',     onDragEnd);
+
+  // touch
+  metroBpm.addEventListener('touchstart', e => { onDragStart(e.touches[0].clientY); e.preventDefault(); }, { passive: false });
+  window.addEventListener('touchmove',    e => { if (dragStartY !== null) { onDragMove(e.touches[0].clientY); e.preventDefault(); } }, { passive: false });
+  window.addEventListener('touchend',     onDragEnd);
+
+  // scroll wheel
+  metroBpm.addEventListener('wheel', e => {
+    e.preventDefault();
+    metroBpmVal = Math.min(300, Math.max(20, metroBpmVal + (e.deltaY < 0 ? 1 : -1)));
+    metroBpm.textContent = metroBpmVal;
+    if (lastTappedBpm && Math.round(lastTappedBpm) !== metroBpmVal) {
+    }
+    restartMetro();
+  }, { passive: false });
+
+  // ── metronome engine ──
+  function ensureAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  function scheduleClick(delay) {
+    metroTimeout = setTimeout(() => {
+      if (!metroOn) return;
+      playClick();
+      metroPulse();
+      scheduleClick(60000 / metroBpmVal);
+    }, delay);
+  }
+
+  let restartDebounce = null;
+  function restartMetro() {
+    if (!metroOn) return;
+    if (metroTimeout) clearTimeout(metroTimeout);
+    if (metroAnimReq) { cancelAnimationFrame(metroAnimReq); metroAnimReq = null; }
+    metroBpm.style.transform = 'scale(1)';
+    if (restartDebounce) clearTimeout(restartDebounce);
+    restartDebounce = setTimeout(() => { scheduleClick(0); }, 120);
+  }
+
+  function playClick() {
+    if (!audioCtx) return;
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.value = 1100;
+    osc.type = 'sine';
+    const t = audioCtx.currentTime;
+    gain.gain.setValueAtTime(0.25, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+    osc.start(t);
+    osc.stop(t + 0.05);
+  }
+
+  function metroPulse() {
+    if (metroAnimReq) cancelAnimationFrame(metroAnimReq);
+    const startTime = performance.now();
+    const peakScale = 1.055, peakMs = 55, releaseMs = 280;
+    function frame(now) {
+      const elapsed = now - startTime;
+      let scale;
+      if (elapsed <= peakMs) {
+        scale = 1 + (peakScale - 1) * (elapsed / peakMs);
+      } else {
+        const t = Math.min((elapsed - peakMs) / releaseMs, 1);
+        scale = peakScale - (peakScale - 1) * (1 - Math.pow(1 - t, 3));
+      }
+      metroBpm.style.transform = `scale(${scale})`;
+      if (elapsed < peakMs + releaseMs) {
+        metroAnimReq = requestAnimationFrame(frame);
+      } else {
+        metroBpm.style.transform = 'scale(1)';
+        metroAnimReq = null;
+      }
+    }
+    metroAnimReq = requestAnimationFrame(frame);
+  }
+</script>
+</body>
+</html>
